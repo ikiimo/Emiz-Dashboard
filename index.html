@@ -1,0 +1,993 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Emiz Media Buying Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        darkBg: '#0f172a',
+                        cardBg: '#1e293b',
+                        accentBlue: '#3b82f6',
+                        accentGreen: '#10b981',
+                    },
+                    fontFamily: { sans: ['Inter', 'sans-serif'] }
+                }
+            }
+        }
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body { background-color: #0f172a; color: #f8fafc; font-family: 'Inter', sans-serif; }
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        ::-webkit-calendar-picker-indicator {
+            filter: invert(1);
+            cursor: pointer;
+            opacity: 0.8;
+        }
+        ::-webkit-calendar-picker-indicator:hover {
+            opacity: 1;
+        }
+    </style>
+</head>
+<body class="min-h-screen pb-10 w-full">
+
+    <div id="missing-data-alert" class="hidden w-full bg-rose-500/10 border-b border-rose-500/20 text-rose-400 px-6 py-3 flex items-center justify-between transition-all duration-300">
+        <div class="flex items-center space-x-3">
+            <i class="fa-solid fa-triangle-exclamation"></i>
+            <span id="missing-alert-text" class="text-sm font-medium">Alert: Sales data for yesterday is missing!</span>
+        </div>
+        <button onclick="openAddDailyModal('yesterday')" class="bg-rose-500 hover:bg-rose-600 text-white px-4 py-1.5 rounded text-xs font-semibold transition shadow-lg shadow-rose-500/20">
+            Add Yesterday's Data Now
+        </button>
+    </div>
+
+    <header class="border-b border-gray-800 bg-cardBg/50 sticky top-0 z-40 backdrop-blur-md w-full">
+        <div class="w-full px-6 flex flex-col md:flex-row md:items-center justify-between py-4 space-y-4 md:space-y-0">
+            <div class="flex items-center space-x-3">
+                <div class="w-10 h-10 bg-accentBlue/20 rounded-xl flex items-center justify-center border border-accentBlue/30 text-accentBlue">
+                    <i class="fa-solid fa-chart-line text-lg"></i>
+                </div>
+                <div>
+                    <h1 class="text-xl font-bold text-white tracking-tight">Emiz Media Buying Dashboard</h1>
+                    <div class="flex items-center space-x-2">
+                        <p class="text-xs text-emerald-400 font-medium">Connected live to Google Sheets</p>
+                        <span class="text-gray-600 text-xs">•</span>
+                        <!-- Small intelligent indicator for last data change -->
+                        <p id="last-sync-indicator" class="text-[10px] text-gray-400 font-medium bg-gray-800/80 px-2 py-0.5 rounded border border-gray-700/50">Listening for changes...</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="flex items-center space-x-3 overflow-x-auto pb-2 md:pb-0 hide-scrollbar">
+                <button onclick="openAddDailyModal('today')" class="bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition flex items-center space-x-2 shadow-lg shadow-emerald-500/20 whitespace-nowrap">
+                    <i class="fa-solid fa-plus"></i>
+                    <span>Add Daily Sales</span>
+                </button>
+                <button onclick="openDateModal()" class="bg-gray-800 hover:bg-gray-700 text-gray-200 px-4 py-2 rounded-lg text-sm font-medium transition flex items-center space-x-2 border border-gray-700 whitespace-nowrap">
+                    <i class="fa-regular fa-calendar"></i>
+                    <span id="date-range-label">Loading dates...</span>
+                    <i class="fa-solid fa-chevron-down text-xs ml-1 text-gray-400"></i>
+                </button>
+                <div id="api-status" class="px-3 py-2 text-xs rounded-lg bg-gray-800 text-gray-300 border border-gray-700 flex items-center space-x-1.5 whitespace-nowrap">
+                    <span class="w-2 h-2 rounded-full bg-gray-500"></span>
+                    <span>Waiting...</span>
+                </div>
+                <button onclick="loadLiveData()" class="bg-gray-800 hover:bg-gray-700 text-gray-300 w-9 h-9 rounded-lg flex items-center justify-center transition border border-gray-700" title="Manual Sync">
+                    <i class="fa-solid fa-rotate-right"></i>
+                </button>
+            </div>
+        </div>
+
+        <div class="w-full px-6 flex space-x-6">
+            <button id="btn-overview" onclick="switchTab('overview')" class="py-3 font-medium text-accentBlue border-b-2 border-accentBlue transition whitespace-nowrap">Overview</button>
+            <button id="btn-targets" onclick="switchTab('targets')" class="py-3 font-medium text-gray-400 hover:text-white transition whitespace-nowrap">Targets & Budget Pacing</button>
+            <button id="btn-recs" onclick="switchTab('recs')" class="py-3 font-medium text-gray-400 hover:text-white transition whitespace-nowrap">Smart Recommendations</button>
+        </div>
+    </header>
+
+    <main class="w-full px-6 mt-6">
+        <div id="tab-overview" class="space-y-6 w-full">
+            
+            <!-- KPIs Grid -->
+            <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 w-full">
+                <div class="bg-cardBg rounded-xl p-5 border border-gray-800 shadow-sm relative overflow-hidden group hover:border-gray-600 transition">
+                    <p class="text-gray-400 text-xs font-medium mb-1">Total Salla Revenue</p>
+                    <h3 id="kpi-salla-rev" class="text-2xl font-bold text-white mb-2">SAR 0</h3>
+                    <p class="text-[10px] text-gray-500">Salla orders revenue</p>
+                </div>
+                <div class="bg-cardBg rounded-xl p-5 border border-gray-800 shadow-sm relative overflow-hidden group hover:border-gray-600 transition">
+                    <p class="text-gray-400 text-xs font-medium mb-1">Total Ad Spend</p>
+                    <h3 id="kpi-ad-spend" class="text-2xl font-bold text-white mb-2">SAR 0</h3>
+                    <p class="text-[10px] text-gray-500">Across active platforms</p>
+                </div>
+                <div class="bg-cardBg rounded-xl p-5 border border-gray-800 shadow-sm relative overflow-hidden group hover:border-gray-600 transition">
+                    <p class="text-gray-400 text-xs font-medium mb-1">True ROAS</p>
+                    <h3 id="kpi-true-roas" class="text-2xl font-bold text-accentBlue mb-2">0.00x</h3>
+                    <p class="text-[10px] text-gray-500">Salla rev ÷ total spend</p>
+                </div>
+                <div class="bg-cardBg rounded-xl p-5 border border-gray-800 shadow-sm relative overflow-hidden group hover:border-gray-600 transition">
+                    <p class="text-gray-400 text-xs font-medium mb-1">Total Orders</p>
+                    <h3 id="kpi-orders" class="text-2xl font-bold text-white mb-2">0</h3>
+                    <p class="text-[10px] text-gray-500">Delivered net orders</p>
+                </div>
+                <div class="bg-cardBg rounded-xl p-5 border border-gray-800 shadow-sm relative overflow-hidden group hover:border-gray-600 transition">
+                    <p class="text-gray-400 text-xs font-medium mb-1">Average Order Value</p>
+                    <h3 id="kpi-aov" class="text-2xl font-bold text-white mb-2">SAR 0</h3>
+                    <p class="text-[10px] text-gray-500">Revenue ÷ orders</p>
+                </div>
+                <div class="bg-cardBg rounded-xl p-5 border border-gray-800 shadow-sm relative overflow-hidden group hover:border-gray-600 transition">
+                    <p class="text-gray-400 text-xs font-medium mb-1">Cancellation Rate</p>
+                    <h3 id="kpi-canc-rate" class="text-2xl font-bold text-rose-400 mb-2">0.0%</h3>
+                    <p id="kpi-canc-count" class="text-[10px] text-gray-500">Cancelled vs gross</p>
+                </div>
+            </div>
+
+            <!-- Charts Section -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 w-full">
+                <div class="lg:col-span-2 bg-cardBg rounded-xl p-6 border border-gray-800 shadow-sm">
+                    <h3 class="text-white font-semibold mb-6">Revenue, Spend & True ROAS</h3>
+                    <div class="h-[300px] w-full"><canvas id="monthlyChart"></canvas></div>
+                </div>
+                <div class="bg-cardBg rounded-xl p-6 border border-gray-800 shadow-sm">
+                    <h3 class="text-white font-semibold mb-6">Ad Spend Breakdown</h3>
+                    <div class="h-[300px] w-full flex items-center justify-center"><canvas id="spendPieChart"></canvas></div>
+                </div>
+            </div>
+
+            <!-- Platform Table -->
+            <div class="bg-cardBg rounded-xl border border-gray-800 shadow-sm overflow-hidden w-full">
+                <div class="p-6 border-b border-gray-800">
+                    <h3 class="text-white font-semibold">Platform Performance</h3>
+                    <p class="text-xs text-gray-400 mt-1">Spend efficiency by channel within selected date range</p>
+                </div>
+                <div class="overflow-x-auto w-full">
+                    <table class="w-full text-left text-sm whitespace-nowrap">
+                        <thead class="text-xs text-gray-400 uppercase bg-gray-800/50">
+                            <tr>
+                                <th class="p-4 font-semibold">Platform</th>
+                                <th class="p-4 font-semibold">Spend</th>
+                                <th class="p-4 font-semibold">% of Budget</th>
+                                <th class="p-4 font-semibold">Orders</th>
+                                <th class="p-4 font-semibold">Revenue</th>
+                                <th class="p-4 font-semibold">ROAS</th>
+                                <th class="p-4 font-semibold">CPA</th>
+                            </tr>
+                        </thead>
+                        <tbody id="platform-table-body" class="divide-y divide-gray-800/50">
+                            <tr><td colspan="7" class="p-8 text-center text-gray-500">Loading live Google Sheets data...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Targets & Budget Pacing Tab -->
+        <div id="tab-targets" class="hidden space-y-6 w-full">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 w-full">
+                <!-- Budget Pacing -->
+                <div class="bg-cardBg rounded-xl p-6 border border-gray-800 shadow-sm flex flex-col justify-between">
+                    <div>
+                        <h3 class="text-white font-semibold mb-4">Monthly Budget Utilization</h3>
+                        <div class="flex justify-between text-sm text-gray-400 mb-2">
+                            <span id="pacing-month-label">--</span>
+                            <span><span id="pacing-pct" class="text-white font-bold">0%</span> spent</span>
+                        </div>
+                        <div class="w-full bg-gray-800 rounded-full h-3 mb-4 overflow-hidden relative">
+                            <div id="pacing-bar" class="bg-accentBlue h-3 rounded-full transition-all duration-500" style="width: 0%"></div>
+                        </div>
+                    </div>
+                    <div class="flex justify-between mt-6">
+                        <div>
+                            <p class="text-gray-500 text-[10px] sm:text-xs uppercase tracking-wider mb-1">Total Budget</p>
+                            <h4 id="pacing-total-budget" class="text-sm sm:text-base font-bold text-white">SAR 0</h4>
+                        </div>
+                        <div class="text-center">
+                            <p class="text-gray-500 text-[10px] sm:text-xs uppercase tracking-wider mb-1">Spent (MTD)</p>
+                            <h4 id="pacing-mtd-spend" class="text-sm sm:text-base font-bold text-emerald-400">SAR 0</h4>
+                        </div>
+                        <div class="text-right">
+                            <p id="remaining-label" class="text-gray-500 text-[10px] sm:text-xs uppercase tracking-wider mb-1">Remaining</p>
+                            <h4 id="pacing-remaining" class="text-sm sm:text-base font-bold text-amber-400">SAR 0</h4>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sales Target -->
+                <div class="bg-cardBg rounded-xl p-6 border border-gray-800 shadow-sm flex flex-col justify-between">
+                    <div>
+                        <h3 class="text-white font-semibold mb-4">Sales Target Progress</h3>
+                        <div class="flex justify-between text-sm text-gray-400 mb-2">
+                            <span>Salla Revenue</span>
+                            <span><span id="sales-pct" class="text-white font-bold">0%</span> achieved</span>
+                        </div>
+                        <div class="w-full bg-gray-800 rounded-full h-3 mb-4 overflow-hidden">
+                            <div id="sales-bar" class="bg-accentBlue h-3 rounded-full transition-all duration-500" style="width: 0%"></div>
+                        </div>
+                    </div>
+                    <div class="flex justify-between mt-6">
+                        <div>
+                            <p class="text-gray-500 text-[10px] sm:text-xs uppercase tracking-wider mb-1">Target Sales</p>
+                            <h4 id="target-sales-val" class="text-sm sm:text-base font-bold text-white">SAR 0</h4>
+                        </div>
+                        <div class="text-right">
+                            <p class="text-gray-500 text-[10px] sm:text-xs uppercase tracking-wider mb-1">Actual (MTD)</p>
+                            <h4 id="mtd-sales-val" class="text-sm sm:text-base font-bold text-emerald-400">SAR 0</h4>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ROAS Target -->
+                <div class="bg-cardBg rounded-xl p-6 border border-gray-800 shadow-sm flex flex-col justify-between">
+                    <div>
+                        <h3 class="text-white font-semibold mb-4">ROAS Target Progress</h3>
+                        <div class="flex justify-between text-sm text-gray-400 mb-2">
+                            <span>True ROAS</span>
+                            <span><span id="roas-pct" class="text-white font-bold">0%</span> achieved</span>
+                        </div>
+                        <div class="w-full bg-gray-800 rounded-full h-3 mb-4 overflow-hidden">
+                            <div id="roas-bar" class="bg-amber-400 h-3 rounded-full transition-all duration-500" style="width: 0%"></div>
+                        </div>
+                    </div>
+                    <div class="flex justify-between mt-6">
+                        <div>
+                            <p class="text-gray-500 text-[10px] sm:text-xs uppercase tracking-wider mb-1">Target ROAS</p>
+                            <h4 id="target-roas-val" class="text-sm sm:text-base font-bold text-white">0.00x</h4>
+                        </div>
+                        <div class="text-right">
+                            <p class="text-gray-500 text-[10px] sm:text-xs uppercase tracking-wider mb-1">Actual (MTD)</p>
+                            <h4 id="mtd-roas-val" class="text-sm sm:text-base font-bold text-emerald-400">0.00x</h4>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Pace Recommender -->
+                <div class="lg:col-span-3 bg-cardBg rounded-xl p-6 border border-gray-800 shadow-sm">
+                    <h3 class="text-white font-semibold mb-6 flex items-center space-x-2">
+                        <i class="fa-solid fa-gauge-high text-accentBlue"></i>
+                        <span>Daily Pacing Recommender</span>
+                    </h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div class="p-5 rounded-xl border border-gray-700 bg-gray-900/50 flex flex-col justify-center items-center">
+                            <p class="text-gray-400 text-sm mb-2">Original Daily Target</p>
+                            <h2 id="pacing-original-daily" class="text-3xl font-bold text-white">SAR 0</h2>
+                            <p class="text-xs text-gray-500 mt-2">To spend evenly across <span id="pacing-total-days">31</span> days</p>
+                        </div>
+                        <div class="p-5 rounded-xl border border-accentBlue/30 bg-accentBlue/5 flex flex-col justify-center items-center relative overflow-hidden" id="rec-daily-box">
+                            <p class="text-accentBlue text-sm mb-2 font-medium" id="rec-daily-title">Recommended Daily (Adjusted)</p>
+                            <h2 id="pacing-rec-daily" class="text-3xl font-bold text-accentBlue">SAR 0</h2>
+                            <p class="text-xs text-blue-200/60 mt-2">For the remaining <span id="pacing-rem-days">0</span> days to hit exact budget</p>
+                            <div id="pacing-status-badge" class="absolute top-3 right-3 text-[10px] font-bold px-2 py-1 rounded bg-gray-800 text-gray-300">
+                                ON TRACK
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="tab-recs" class="hidden space-y-6 w-full">
+            <div class="bg-cardBg rounded-xl p-8 border border-gray-800 text-center text-gray-400">
+                <i class="fa-solid fa-lightbulb text-4xl mb-3 text-amber-500"></i>
+                <h3 class="text-white font-semibold mb-1">Smart Recommendations</h3>
+                <p class="text-sm">AI-driven optimizations will appear here based on your data.</p>
+            </div>
+        </div>
+    </main>
+
+    <!-- Add Daily Sales Modal -->
+    <div id="addDailyModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm hidden z-50 flex items-center justify-center p-4">
+        <div class="bg-cardBg w-full max-w-md rounded-2xl border border-gray-700 shadow-2xl overflow-hidden">
+            <div class="p-5 border-b border-gray-800 flex justify-between items-center bg-gray-900/50">
+                <div class="flex items-center space-x-3">
+                    <div class="w-8 h-8 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
+                        <i class="fa-solid fa-cart-plus text-sm"></i>
+                    </div>
+                    <h3 class="text-lg font-bold text-white">Add Salla Sales</h3>
+                </div>
+                <button onclick="closeAddDailyModal()" class="text-gray-400 hover:text-white transition w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-800"><i class="fa-solid fa-times"></i></button>
+            </div>
+            <form onsubmit="submitDailySales(event)" class="p-6 space-y-5">
+                <div>
+                    <label class="block text-xs font-medium text-gray-400 mb-1.5">Date</label>
+                    <input type="date" id="input-date" onchange="prefillDailyData(this.value)" required class="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-accentBlue focus:ring-1 focus:ring-accentBlue transition shadow-inner cursor-pointer">
+                    <p class="text-[10px] text-gray-500 mt-1">Changing the date will auto-load existing data if available.</p>
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-400 mb-1.5">Delivered Net Orders</label>
+                    <input type="number" id="input-orders" required min="0" placeholder="e.g. 150" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-accentBlue focus:ring-1 focus:ring-accentBlue transition shadow-inner">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-gray-400 mb-1.5">Net Revenue (SAR)</label>
+                    <input type="number" id="input-revenue" required min="0" step="0.01" placeholder="e.g. 15000.50" class="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-accentBlue focus:ring-1 focus:ring-accentBlue transition shadow-inner">
+                </div>
+                <div class="pt-2 flex space-x-3">
+                    <button type="button" onclick="closeAddDailyModal()" class="flex-1 py-2.5 rounded-lg border border-gray-700 text-gray-300 font-medium hover:bg-gray-800 transition">Cancel</button>
+                    <button type="submit" id="save-btn" class="flex-1 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white font-medium transition flex items-center justify-center space-x-2 shadow-lg shadow-emerald-500/20">
+                        <i class="fa-solid fa-cloud-arrow-up"></i><span>Save to Sheet</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Date Dual Calendar Modal -->
+    <div id="dateModal" class="fixed inset-0 bg-black/60 backdrop-blur-sm hidden z-50 flex items-center justify-center p-4">
+        <div class="bg-cardBg w-full max-w-4xl rounded-2xl border border-gray-700 shadow-2xl flex flex-col md:flex-row overflow-hidden">
+            <div class="w-full md:w-56 bg-gray-900/50 p-4 border-b md:border-b-0 md:border-r border-gray-800 flex flex-col space-y-1 overflow-y-auto max-h-60 md:max-h-full">
+                <div class="flex items-center justify-between px-2 mb-3 mt-1">
+                    <p class="text-xs font-bold text-gray-500 tracking-wider">PRESETS</p>
+                    <span class="text-[10px] font-semibold bg-accentBlue/20 text-accentBlue px-2 py-0.5 rounded">1-CLICK</span>
+                </div>
+                <button id="preset-today" onclick="setDatePreset('today')" class="w-full text-left px-3 py-2.5 rounded-lg font-medium text-gray-300 hover:bg-gray-800 transition text-sm">Today</button>
+                <button id="preset-yesterday" onclick="setDatePreset('yesterday')" class="w-full text-left px-3 py-2.5 rounded-lg font-medium text-gray-300 hover:bg-gray-800 transition text-sm">Yesterday</button>
+                <button id="preset-last7" onclick="setDatePreset('last7')" class="w-full text-left px-3 py-2.5 rounded-lg font-medium text-gray-300 hover:bg-gray-800 transition text-sm">Last 7 days</button>
+                <button id="preset-last30" onclick="setDatePreset('last30')" class="w-full text-left px-3 py-2.5 rounded-lg font-medium text-gray-300 hover:bg-gray-800 transition text-sm">Last 30 days</button>
+                <button id="preset-thisMonth" onclick="setDatePreset('thisMonth')" class="w-full text-left px-3 py-2.5 rounded-lg font-medium text-gray-300 hover:bg-gray-800 transition text-sm">This month</button>
+                <button id="preset-lastMonth" onclick="setDatePreset('lastMonth')" class="w-full text-left px-3 py-2.5 rounded-lg font-medium text-gray-300 hover:bg-gray-800 transition text-sm">Last month</button>
+                <button id="preset-thisYear" onclick="setDatePreset('thisYear')" class="w-full text-left px-3 py-2.5 rounded-lg font-medium text-gray-300 hover:bg-gray-800 transition text-sm">This year</button>
+                <button id="preset-allTime" onclick="setDatePreset('allTime')" class="w-full text-left px-3 py-2.5 rounded-lg font-medium text-gray-300 hover:bg-gray-800 transition text-sm">All Time</button>
+            </div>
+            
+            <div class="p-6 flex-1 flex flex-col">
+                <div class="flex items-center justify-between mb-6">
+                    <button onclick="changeMonth(-1)" class="p-2 text-gray-400 hover:text-white transition flex items-center space-x-1"><i class="fa-solid fa-chevron-left text-xs"></i> <span>Prev</span></button>
+                    <div class="flex space-x-12">
+                        <h4 id="cal-month-1" class="font-bold text-white text-base md:text-lg w-32 md:w-40 text-center">Month 1</h4>
+                        <h4 id="cal-month-2" class="font-bold text-white text-base md:text-lg w-32 md:w-40 text-center hidden md:block">Month 2</h4>
+                    </div>
+                    <button onclick="changeMonth(1)" class="p-2 text-gray-400 hover:text-white transition flex items-center space-x-1"><span>Next</span> <i class="fa-solid fa-chevron-right text-xs"></i></button>
+                </div>
+                
+                <div class="flex space-x-0 md:space-x-10 flex-1">
+                    <div class="flex-1">
+                        <div class="grid grid-cols-7 gap-1 text-center text-xs font-semibold text-gray-500 mb-3 tracking-wide">
+                            <div>SU</div><div>MO</div><div>TU</div><div>WE</div><div>TH</div><div>FR</div><div>SA</div>
+                        </div>
+                        <div id="calendar-grid-1" class="grid grid-cols-7 gap-y-2 gap-x-1"></div>
+                    </div>
+                    <div class="flex-1 hidden md:block">
+                        <div class="grid grid-cols-7 gap-1 text-center text-xs font-semibold text-gray-500 mb-3 tracking-wide">
+                            <div>SU</div><div>MO</div><div>TU</div><div>WE</div><div>TH</div><div>FR</div><div>SA</div>
+                        </div>
+                        <div id="calendar-grid-2" class="grid grid-cols-7 gap-y-2 gap-x-1"></div>
+                    </div>
+                </div>
+                
+                <div class="mt-8 pt-5 border-t border-gray-800 flex flex-col md:flex-row justify-between items-center space-y-4 md:space-y-0">
+                    <div class="flex items-center space-x-2">
+                        <span class="text-sm font-medium text-gray-400">Selected:</span>
+                        <div class="bg-gray-900 border border-gray-700 px-3 py-1.5 rounded text-sm text-accentBlue font-medium tracking-wide" id="modal-range-summary">
+                            --
+                        </div>
+                    </div>
+                    <div class="flex space-x-3 w-full md:w-auto">
+                        <button onclick="closeDateModal()" class="flex-1 md:flex-none px-5 py-2.5 rounded-lg text-gray-400 font-medium hover:text-white hover:bg-gray-800 transition">Cancel</button>
+                        <button onclick="applyDateRange()" class="flex-1 md:flex-none px-6 py-2.5 rounded-lg bg-accentBlue hover:bg-blue-600 text-white font-medium transition shadow-lg shadow-blue-500/20">Apply Range</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const webAppUrl = "https://script.google.com/macros/s/AKfycbwkMxAZH6hjT12hV6kNDb5YOLoBxOAm48lLnb0t1i_c4zC1no-oqrETTaiw8R9l25lMSQ/exec";
+        
+        let globalTrackerData = [];
+        let globalBudgetData = [];
+        let previousTrackerJSON = ""; // State signature to detect actual data changes
+        let monthlyChartInstance = null;
+        let spendPieChartInstance = null;
+        
+        let currentStartDate = ""; 
+        let currentEndDate = "";
+        
+        let viewYear = new Date().getFullYear();
+        let viewMonth = new Date().getMonth();
+        let tempStartDate = "";
+        let tempEndDate = "";
+        let selectionStep = 0;
+
+        function formatDateISO(date) {
+            let y = date.getFullYear();
+            let m = String(date.getMonth() + 1).padStart(2, '0');
+            let d = String(date.getDate()).padStart(2, '0');
+            return `${y}-${m}-${d}`;
+        }
+
+        window.onload = function() {
+            let today = new Date();
+            let todayStr = formatDateISO(today);
+            currentStartDate = todayStr;
+            currentEndDate = todayStr;
+            tempStartDate = todayStr;
+            tempEndDate = todayStr;
+            
+            document.getElementById('date-range-label').innerText = `${currentStartDate} to ${currentEndDate}`;
+            loadLiveData();
+
+            // Auto-refresh every 5 seconds in background without disrupting UI
+            setInterval(function() {
+                loadLiveData(true);
+            }, 5000);
+        };
+
+        function switchTab(tabId) {
+            ['overview', 'targets', 'recs'].forEach(t => {
+                document.getElementById(`tab-${t}`).classList.add('hidden');
+                document.getElementById(`btn-${t}`).className = "py-3 font-medium text-gray-400 hover:text-white transition whitespace-nowrap";
+            });
+            document.getElementById(`tab-${tabId}`).classList.remove('hidden');
+            document.getElementById(`btn-${tabId}`).className = "py-3 font-medium text-accentBlue border-b-2 border-accentBlue transition whitespace-nowrap";
+        }
+
+        function loadLiveData(isBackground = false) {
+            const statusEl = document.getElementById('api-status');
+            
+            if (!isBackground) {
+                statusEl.className = 'px-3 py-1.5 text-xs rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 flex items-center space-x-1.5 whitespace-nowrap';
+                statusEl.innerHTML = '<span class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span><span>Syncing...</span>';
+            }
+
+            const callbackName = 'jsonp_load_' + Math.random().toString(36).substring(2);
+            window[callbackName] = function(response) {
+                delete window[callbackName];
+                const scriptNode = document.getElementById('script_' + callbackName);
+                if(scriptNode) scriptNode.remove();
+                
+                if(response && response.status === "success") {
+                    let newTrackerData = response.tracker || [];
+                    let newTrackerJSON = JSON.stringify(newTrackerData);
+                    
+                    // Smart change detection: update only if sheet data actually changed
+                    if (previousTrackerJSON !== "" && previousTrackerJSON !== newTrackerJSON) {
+                        let now = new Date();
+                        let timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                        const indicator = document.getElementById('last-sync-indicator');
+                        indicator.innerText = `Last active update: ${timeStr}`;
+                        indicator.className = "text-[10px] text-emerald-400 font-semibold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/30 transition-all duration-300 scale-105";
+                        setTimeout(() => {
+                            indicator.className = "text-[10px] text-gray-300 font-medium bg-gray-800/80 px-2 py-0.5 rounded border border-gray-700/50 transition-all duration-300";
+                        }, 3000);
+                    } else if (previousTrackerJSON === "") {
+                        document.getElementById('last-sync-indicator').innerText = `Synced just now`;
+                    }
+                    
+                    globalTrackerData = newTrackerData;
+                    previousTrackerJSON = newTrackerJSON;
+                    globalBudgetData = response.budgets || [];
+                    
+                    statusEl.className = 'px-3 py-1.5 text-xs rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center space-x-1.5 whitespace-nowrap shadow-sm shadow-emerald-500/10';
+                    statusEl.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-400"></span><span>Live Connected</span>';
+
+                    processAndRenderData();
+                    checkYesterdayData(globalTrackerData);
+                } else {
+                    if (!isBackground) {
+                        statusEl.className = 'px-3 py-1.5 text-xs rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/20 flex items-center space-x-1.5 whitespace-nowrap';
+                        statusEl.innerHTML = '<span class="w-2 h-2 rounded-full bg-rose-400"></span><span>Connection Error</span>';
+                    }
+                }
+            };
+
+            const scriptEl = document.createElement('script');
+            scriptEl.id = 'script_' + callbackName;
+            // Anti-cache param to ensure Google Apps Script never serves cached results
+            scriptEl.src = webAppUrl + '?nocache=' + Date.now() + '_' + Math.random() + '&callback=' + callbackName;
+            document.body.appendChild(scriptEl);
+        }
+
+        function openDateModal() {
+            document.getElementById('dateModal').classList.remove('hidden');
+            if (currentStartDate !== "All Time") {
+                tempStartDate = currentStartDate;
+                tempEndDate = currentEndDate;
+                let d = new Date(tempEndDate);
+                viewYear = d.getFullYear();
+                viewMonth = d.getMonth();
+            } else {
+                tempStartDate = "All Time"; 
+                tempEndDate = "All Time";
+                let d = new Date();
+                viewYear = d.getFullYear();
+                viewMonth = d.getMonth();
+            }
+            selectionStep = 0;
+            renderCalendars();
+        }
+
+        function closeDateModal() {
+            document.getElementById('dateModal').classList.add('hidden');
+        }
+
+        function changeMonth(dir) {
+            viewMonth += dir;
+            if (viewMonth < 0) { viewMonth = 11; viewYear--; }
+            else if (viewMonth > 11) { viewMonth = 0; viewYear++; }
+            renderCalendars();
+        }
+
+        function setDatePreset(preset) {
+            let today = new Date();
+            let yest = new Date(); yest.setDate(yest.getDate() - 1);
+            
+            document.querySelectorAll('[id^="preset-"]').forEach(btn => {
+                btn.className = 'w-full text-left px-3 py-2.5 rounded-lg font-medium text-gray-300 hover:bg-gray-800 transition text-sm';
+            });
+            document.getElementById('preset-' + preset).classList.add('bg-gray-800', 'text-white');
+
+            if (preset === 'today') { tempStartDate = formatDateISO(today); tempEndDate = formatDateISO(today); }
+            else if (preset === 'yesterday') { tempStartDate = formatDateISO(yest); tempEndDate = formatDateISO(yest); }
+            else if (preset === 'last7') { 
+                let d = new Date(); d.setDate(d.getDate() - 6);
+                tempStartDate = formatDateISO(d); tempEndDate = formatDateISO(today);
+            }
+            else if (preset === 'last30') {
+                let d = new Date(); d.setDate(d.getDate() - 29);
+                tempStartDate = formatDateISO(d); tempEndDate = formatDateISO(today);
+            }
+            else if (preset === 'thisMonth') {
+                tempStartDate = formatDateISO(new Date(today.getFullYear(), today.getMonth(), 1));
+                tempEndDate = formatDateISO(today);
+            }
+            else if (preset === 'lastMonth') {
+                tempStartDate = formatDateISO(new Date(today.getFullYear(), today.getMonth() - 1, 1));
+                tempEndDate = formatDateISO(new Date(today.getFullYear(), today.getMonth(), 0));
+            }
+            else if (preset === 'thisYear') {
+                tempStartDate = formatDateISO(new Date(today.getFullYear(), 0, 1));
+                tempEndDate = formatDateISO(today);
+            }
+            else if (preset === 'allTime') {
+                tempStartDate = "All Time"; tempEndDate = "All Time";
+            }
+            
+            selectionStep = 0;
+            if(tempEndDate !== "All Time") {
+                let d = new Date(tempEndDate);
+                viewYear = d.getFullYear();
+                viewMonth = d.getMonth();
+                if(preset === 'lastMonth') viewMonth = today.getMonth() - 1;
+            }
+            renderCalendars();
+        }
+
+        function buildMonthGrid(year, month) {
+            let firstDay = new Date(year, month, 1).getDay();
+            let totalDays = new Date(year, month + 1, 0).getDate();
+            let html = '';
+            for(let i = 0; i < firstDay; i++) html += `<div class="p-1"></div>`;
+            
+            for(let day = 1; day <= totalDays; day++) {
+                let dStr = `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+                
+                let isStart = (dStr === tempStartDate), isEnd = (dStr === tempEndDate), inRange = (dStr > tempStartDate && dStr < tempEndDate);
+                let cls = "p-1 rounded-lg cursor-pointer text-sm font-medium flex items-center justify-center h-9 transition ";
+                
+                if (tempStartDate === "All Time") {
+                    cls += "text-gray-400 hover:bg-gray-800";
+                } else if(isStart || isEnd) {
+                    cls += "bg-accentBlue text-white shadow-md shadow-blue-500/30 scale-105 z-10 relative";
+                } else if(inRange) {
+                    cls += "bg-accentBlue/20 text-blue-200 rounded-none";
+                } else {
+                    cls += "text-gray-300 hover:bg-gray-800 hover:text-white";
+                }
+                
+                html += `<div onclick="selectCalDate('${dStr}')" class="${cls}">${day}</div>`;
+            }
+            return html;
+        }
+
+        function renderCalendars() {
+            let y1 = viewYear, m1 = viewMonth;
+            let y2 = viewYear, m2 = viewMonth + 1;
+            if (m2 > 11) { m2 = 0; y2++; }
+
+            document.getElementById('cal-month-1').innerText = new Date(y1, m1, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' });
+            document.getElementById('cal-month-2').innerText = new Date(y2, m2, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' });
+
+            document.getElementById('calendar-grid-1').innerHTML = buildMonthGrid(y1, m1);
+            document.getElementById('calendar-grid-2').innerHTML = buildMonthGrid(y2, m2);
+
+            if(tempStartDate === "All Time") {
+                document.getElementById('modal-range-summary').innerText = `All Time Data Selected`;
+            } else {
+                let startObj = new Date(tempStartDate);
+                let endObj = new Date(tempEndDate);
+                let diff = Math.round(Math.abs(endObj - startObj) / (1000 * 60 * 60 * 24)) + 1;
+                let fStart = startObj.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                let fEnd = endObj.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                document.getElementById('modal-range-summary').innerHTML = `${fStart} &nbsp;&mdash;&nbsp; ${fEnd} <span class="text-gray-500 text-xs ml-2 font-normal">(${diff} days)</span>`;
+            }
+        }
+
+        function selectCalDate(dStr) {
+            if (tempStartDate === "All Time") { tempStartDate = dStr; tempEndDate = dStr; selectionStep = 1; }
+            else if(selectionStep === 0) { tempStartDate = dStr; tempEndDate = dStr; selectionStep = 1; } 
+            else { 
+                if(dStr < tempStartDate) { tempEndDate = tempStartDate; tempStartDate = dStr; } 
+                else { tempEndDate = dStr; } 
+                selectionStep = 0; 
+            }
+            
+            document.querySelectorAll('[id^="preset-"]').forEach(btn => {
+                btn.className = 'w-full text-left px-3 py-2.5 rounded-lg font-medium text-gray-300 hover:bg-gray-800 transition text-sm';
+            });
+            renderCalendars();
+        }
+
+        function applyDateRange() {
+            currentStartDate = tempStartDate; 
+            currentEndDate = tempEndDate;
+            if (currentStartDate === "All Time") {
+                document.getElementById('date-range-label').innerText = `All Time Data`;
+            } else {
+                document.getElementById('date-range-label').innerText = `${currentStartDate} to ${currentEndDate}`;
+            }
+            closeDateModal();
+            processAndRenderData();
+        }
+
+        function checkYesterdayData(rows) {
+            if(!rows || rows.length < 3) return;
+            let yest = new Date();
+            yest.setDate(yest.getDate() - 1);
+            let yestStr = formatDateISO(yest);
+
+            let foundYest = false;
+            for(let i = 2; i < rows.length; i++) {
+                let rowDateRaw = rows[i][2];
+                if(!rowDateRaw) continue;
+                let rowDate = String(rowDateRaw).trim().substring(0, 10);
+                
+                if(rowDate === yestStr) {
+                    let rev = Number(rows[i][4]);
+                    if(!isNaN(rev) && rev > 0) foundYest = true;
+                    break;
+                }
+            }
+
+            const alertBanner = document.getElementById('missing-data-alert');
+            if(!foundYest) {
+                alertBanner.classList.remove('hidden');
+                document.getElementById('missing-alert-text').innerText = `Alert: Sales data for yesterday (${yestStr}) is missing!`;
+            } else {
+                alertBanner.classList.add('hidden');
+            }
+        }
+
+        function submitDailySales(e) {
+            e.preventDefault();
+            let date = document.getElementById('input-date').value;
+            let orders = document.getElementById('input-orders').value;
+            let revenue = document.getElementById('input-revenue').value;
+
+            const saveBtn = document.getElementById('save-btn');
+            saveBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i><span>Saving...</span>';
+            saveBtn.disabled = true;
+
+            const callbackName = 'jsonp_save_' + Math.random().toString(36).substring(2);
+            window[callbackName] = function(res) {
+                delete window[callbackName];
+                document.getElementById('script_' + callbackName).remove();
+                saveBtn.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i><span>Save to Sheet</span>';
+                saveBtn.disabled = false;
+                
+                if(res && res.status === "success") {
+                    closeAddDailyModal();
+                    loadLiveData(); 
+                } else {
+                    alert("Error saving: " + (res ? res.message : "Unknown error"));
+                }
+            };
+
+            const scriptEl = document.createElement('script');
+            scriptEl.id = 'script_' + callbackName;
+            scriptEl.src = webAppUrl + `?action=saveDaily&date=${date}&orders=${orders}&revenue=${revenue}&nocache=` + Date.now() + `&callback=` + callbackName;
+            document.body.appendChild(scriptEl);
+        }
+
+        function openAddDailyModal(target) {
+            document.getElementById('addDailyModal').classList.remove('hidden');
+            let d = new Date();
+            if (target === 'yesterday') d.setDate(d.getDate() - 1);
+            
+            let dateStr = formatDateISO(d);
+            document.getElementById('input-date').value = dateStr;
+            prefillDailyData(dateStr);
+        }
+
+        function closeAddDailyModal() { 
+            document.getElementById('addDailyModal').classList.add('hidden'); 
+        }
+        
+        function prefillDailyData(selectedDate) {
+            let ordersInput = document.getElementById('input-orders');
+            let revenueInput = document.getElementById('input-revenue');
+            ordersInput.value = "";
+            revenueInput.value = "";
+            
+            if(!globalTrackerData || globalTrackerData.length < 3) return;
+            for (let i = 2; i < globalTrackerData.length; i++) {
+                let rawDate = globalTrackerData[i][2];
+                if(!rawDate) continue;
+                let rowDate = String(rawDate).trim().substring(0, 10);
+                if (rowDate === selectedDate) {
+                    let orders = globalTrackerData[i][3];
+                    let revenue = globalTrackerData[i][4];
+                    if (orders !== "" && orders !== null && !isNaN(orders)) ordersInput.value = orders;
+                    if (revenue !== "" && revenue !== null && !isNaN(revenue)) revenueInput.value = revenue;
+                    break;
+                }
+            }
+        }
+
+        function processAndRenderData() {
+            if(!globalTrackerData || globalTrackerData.length < 3) return;
+            let rows = globalTrackerData.slice(2); 
+            
+            let activeRows = rows;
+            if(currentStartDate !== "All Time") {
+                activeRows = rows.filter(r => {
+                    let rawDate = r[2]; 
+                    if(!rawDate) return false;
+                    let dateStr = String(rawDate).trim().substring(0, 10);
+                    return dateStr >= currentStartDate && dateStr <= currentEndDate;
+                });
+            }
+
+            let totalSallaRev = 0, totalAdSpend = 0, totalOrders = 0, totalCancelled = 0;
+            let metaSpend = 0, metaOrders = 0, metaRev = 0;
+            let tiktokSpend = 0, tiktokOrders = 0, tiktokRev = 0;
+            let snapSpend = 0, snapOrders = 0, snapRev = 0;
+            let twitterSpend = 0, twitterOrders = 0, twitterRev = 0;
+            let googleSpend = 0, googleOrders = 0, googleRev = 0;
+
+            activeRows.forEach(r => {
+                totalSallaRev += Number(r[4]) || 0; 
+                totalAdSpend += Number(r[8]) || 0; 
+                totalOrders += Number(r[3]) || 0;  
+                totalCancelled += Number(r[6]) || 0; 
+
+                metaSpend += Number(r[21]) || 0; metaOrders += Number(r[22]) || 0; metaRev += Number(r[23]) || 0;
+                tiktokSpend += Number(r[31]) || 0; tiktokOrders += Number(r[32]) || 0; tiktokRev += Number(r[33]) || 0;
+                snapSpend += Number(r[41]) || 0; snapOrders += Number(r[42]) || 0; snapRev += Number(r[43]) || 0;
+                twitterSpend += Number(r[49]) || 0; twitterOrders += Number(r[50]) || 0; twitterRev += Number(r[51]) || 0;
+                googleSpend += Number(r[58]) || 0; googleOrders += Number(r[59]) || 0; googleRev += Number(r[60]) || 0;
+            });
+
+            let grossOrders = totalOrders + totalCancelled;
+            let trueRoas = totalAdSpend > 0 ? (totalSallaRev / totalAdSpend).toFixed(2) : "0.00";
+            let aov = totalOrders > 0 ? (totalSallaRev / totalOrders).toFixed(0) : "0";
+            let cancRate = grossOrders > 0 ? ((totalCancelled / grossOrders) * 100).toFixed(1) : "0.0";
+
+            document.getElementById('kpi-salla-rev').innerText = `SAR ${totalSallaRev.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 0})}`;
+            document.getElementById('kpi-ad-spend').innerText = `SAR ${totalAdSpend.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 0})}`;
+            document.getElementById('kpi-true-roas').innerText = `${trueRoas}x`;
+            document.getElementById('kpi-orders').innerText = totalOrders.toLocaleString();
+            document.getElementById('kpi-aov').innerText = `SAR ${aov}`;
+            document.getElementById('kpi-canc-rate').innerText = `${cancRate}%`;
+            document.getElementById('kpi-canc-count').innerText = `Cancelled orders: ${totalCancelled}`;
+
+            let platforms = [
+                { name: 'TikTok', color: '#2563eb', spend: tiktokSpend, orders: tiktokOrders, rev: tiktokRev },
+                { name: 'Snapchat', color: '#eab308', spend: snapSpend, orders: snapOrders, rev: snapRev },
+                { name: 'Meta', color: '#3b82f6', spend: metaSpend, orders: metaOrders, rev: metaRev },
+                { name: 'Google Ads', color: '#ea4335', spend: googleSpend, orders: googleOrders, rev: googleRev },
+                { name: 'Twitter (X)', color: '#0f1419', spend: twitterSpend, orders: twitterOrders, rev: twitterRev }
+            ].sort((a, b) => b.spend - a.spend);
+
+            let tableHTML = '';
+            platforms.forEach(p => {
+                let roas = p.spend > 0 ? (p.rev / p.spend).toFixed(2) : "0.00";
+                let cpa = p.orders > 0 ? (p.spend / p.orders).toFixed(0) : "0";
+                let budgetShare = totalAdSpend > 0 ? ((p.spend / totalAdSpend) * 100).toFixed(1) : "0.0";
+
+                tableHTML += `
+                    <tr class="hover:bg-darkBg/30 transition border-b border-gray-800/30 last:border-0">
+                        <td class="p-4 font-semibold text-white flex items-center space-x-3">
+                            <span class="w-3 h-3 rounded-full shadow-sm" style="background-color: ${p.color}"></span>
+                            <span>${p.name}</span>
+                        </td>
+                        <td class="p-4 text-gray-300 font-medium">SAR ${Math.round(p.spend).toLocaleString()}</td>
+                        <td class="p-4 text-gray-400">${budgetShare}%</td>
+                        <td class="p-4 text-gray-300">${p.orders.toLocaleString()}</td>
+                        <td class="p-4 text-gray-300">SAR ${Math.round(p.rev).toLocaleString()}</td>
+                        <td class="p-4 text-emerald-400 font-bold bg-emerald-500/5 rounded-lg">${roas}x</td>
+                        <td class="p-4 text-gray-300">SAR ${cpa}</td>
+                    </tr>
+                `;
+            });
+            document.getElementById('platform-table-body').innerHTML = tableHTML;
+            renderChartsDynamic(platforms);
+            renderBudgetPacing();
+        }
+
+        function renderBudgetPacing() {
+            if (!globalBudgetData || globalBudgetData.length < 2) return;
+            
+            let refDateStr = (currentEndDate === "All Time") ? formatDateISO(new Date()) : currentEndDate;
+            let end = new Date(refDateStr);
+            let year = end.getFullYear();
+            let month = end.getMonth() + 1; 
+            let day = end.getDate();
+            let monthName = end.toLocaleString('en-US', { month: 'long' });
+
+            let monthBudget = 0, targetSales = 0, targetRoas = 0;
+
+            for (let i = 1; i < globalBudgetData.length; i++) {
+                if (Number(globalBudgetData[i][0]) === year && Number(globalBudgetData[i][1]) === month) {
+                    monthBudget = Number(globalBudgetData[i][3]) || 0; 
+                    targetSales = Number(globalBudgetData[i][4]) || 0; 
+                    targetRoas = Number(globalBudgetData[i][5]) || 0; 
+                    break;
+                }
+            }
+
+            let mtdSpend = 0, mtdRevenue = 0;
+            if (globalTrackerData && globalTrackerData.length > 2) {
+                for (let i = 2; i < globalTrackerData.length; i++) {
+                    let rawDate = globalTrackerData[i][2];
+                    if(!rawDate) continue;
+                    let dateStr = String(rawDate).trim().substring(0, 10);
+                    let rYear = parseInt(dateStr.substring(0,4));
+                    let rMonth = parseInt(dateStr.substring(5,7));
+                    let rDay = parseInt(dateStr.substring(8,10));
+
+                    if (rYear === year && rMonth === month && rDay <= day) {
+                        mtdSpend += Number(globalTrackerData[i][8]) || 0; 
+                        mtdRevenue += Number(globalTrackerData[i][4]) || 0;
+                    }
+                }
+            }
+
+            let daysInMonth = new Date(year, month, 0).getDate();
+            let remainingDays = daysInMonth - day;
+            let remainingBudget = monthBudget - mtdSpend;
+
+            let pctSpent = monthBudget > 0 ? ((mtdSpend / monthBudget) * 100) : 0;
+            let originalDaily = monthBudget > 0 ? (monthBudget / daysInMonth) : 0;
+            let recommendedDaily = (remainingDays > 0 && remainingBudget > 0) ? (remainingBudget / remainingDays) : 0;
+
+            document.getElementById('pacing-month-label').innerText = `${monthName} ${year}`;
+            document.getElementById('pacing-pct').innerText = `${pctSpent.toFixed(1)}%`;
+            document.getElementById('pacing-pct').className = pctSpent > 100 ? "text-rose-500 font-bold" : "text-white font-bold";
+            document.getElementById('pacing-bar').style.width = `${Math.min(100, pctSpent)}%`;
+            
+            let expectedPct = (day / daysInMonth) * 100;
+            let barColor = '#3b82f6', statusText = 'ON TRACK', statusColor = 'bg-gray-800 text-gray-300 border border-gray-700';
+            let recDailyBox = document.getElementById('rec-daily-box');
+            let recDailyTitle = document.getElementById('rec-daily-title');
+
+            if (pctSpent > 100) {
+                barColor = '#f43f5e'; statusText = 'OVER BUDGET'; statusColor = 'bg-rose-500/20 text-rose-400 border border-rose-500/30';
+                recDailyBox.className = "p-5 rounded-xl border border-rose-500/30 bg-rose-500/5 flex flex-col justify-center items-center relative overflow-hidden";
+                recDailyTitle.className = "text-rose-500 text-sm mb-2 font-medium";
+            } else if (pctSpent > expectedPct + 5) {
+                barColor = '#f43f5e'; statusText = 'OVERSPENDING'; statusColor = 'bg-rose-500/20 text-rose-400 border border-rose-500/30';
+            } else if (pctSpent < expectedPct - 5) {
+                barColor = '#10b981'; statusText = 'SURPLUS'; statusColor = 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30';
+            } else {
+                recDailyBox.className = "p-5 rounded-xl border border-accentBlue/30 bg-accentBlue/5 flex flex-col justify-center items-center relative overflow-hidden";
+                recDailyTitle.className = "text-accentBlue text-sm mb-2 font-medium";
+            }
+            
+            document.getElementById('pacing-bar').style.backgroundColor = barColor;
+            document.getElementById('pacing-total-budget').innerText = `SAR ${monthBudget.toLocaleString(undefined, {maximumFractionDigits:0})}`;
+            document.getElementById('pacing-mtd-spend').innerText = `SAR ${mtdSpend.toLocaleString(undefined, {maximumFractionDigits:0})}`;
+            
+            let remLabel = document.getElementById('remaining-label');
+            let remValue = document.getElementById('pacing-remaining');
+            
+            if (remainingBudget < 0) {
+                remLabel.innerText = "OVERSPENT";
+                remLabel.className = "text-rose-500 text-[10px] sm:text-xs uppercase tracking-wider mb-1 font-bold";
+                remValue.innerText = `SAR ${Math.abs(remainingBudget).toLocaleString(undefined, {maximumFractionDigits:0})}`;
+                remValue.className = "text-sm sm:text-base font-bold text-rose-500";
+                document.getElementById('pacing-rec-daily').innerText = `SAR 0`;
+                document.getElementById('pacing-rec-daily').className = "text-3xl font-bold text-rose-500";
+            } else {
+                remLabel.innerText = "Remaining";
+                remLabel.className = "text-gray-500 text-[10px] sm:text-xs uppercase tracking-wider mb-1";
+                remValue.innerText = `SAR ${remainingBudget.toLocaleString(undefined, {maximumFractionDigits:0})}`;
+                remValue.className = "text-sm sm:text-base font-bold text-amber-400";
+                document.getElementById('pacing-rec-daily').innerText = `SAR ${recommendedDaily.toLocaleString(undefined, {maximumFractionDigits:0})}`;
+                document.getElementById('pacing-rec-daily').className = "text-3xl font-bold text-accentBlue";
+            }
+
+            document.getElementById('pacing-original-daily').innerText = `SAR ${originalDaily.toLocaleString(undefined, {maximumFractionDigits:0})}`;
+            document.getElementById('pacing-total-days').innerText = daysInMonth;
+            document.getElementById('pacing-rem-days').innerText = remainingDays;
+
+            let badge = document.getElementById('pacing-status-badge');
+            badge.innerText = statusText;
+            badge.className = `absolute top-3 right-3 text-[10px] font-bold px-2 py-1 rounded ${statusColor}`;
+
+            let salesPct = targetSales > 0 ? ((mtdRevenue / targetSales) * 100) : 0;
+            document.getElementById('target-sales-val').innerText = `SAR ${targetSales.toLocaleString(undefined, {maximumFractionDigits:0})}`;
+            document.getElementById('mtd-sales-val').innerText = `SAR ${mtdRevenue.toLocaleString(undefined, {maximumFractionDigits:0})}`;
+            document.getElementById('sales-pct').innerText = `${salesPct.toFixed(1)}%`;
+            document.getElementById('sales-bar').style.width = `${Math.min(100, salesPct)}%`;
+            document.getElementById('sales-bar').style.backgroundColor = salesPct >= 100 ? '#10b981' : '#3b82f6';
+            document.getElementById('sales-pct').className = salesPct >= 100 ? "text-emerald-400 font-bold" : "text-white font-bold";
+
+            let currentRoas = mtdSpend > 0 ? (mtdRevenue / mtdSpend).toFixed(2) : "0.00";
+            let roasPct = targetRoas > 0 ? ((Number(currentRoas) / targetRoas) * 100) : 0;
+            document.getElementById('target-roas-val').innerText = `${parseFloat(targetRoas).toFixed(2)}x`;
+            document.getElementById('mtd-roas-val').innerText = `${currentRoas}x`;
+            document.getElementById('roas-pct').innerText = `${roasPct.toFixed(1)}%`;
+            document.getElementById('roas-bar').style.width = `${Math.min(100, roasPct)}%`;
+            document.getElementById('roas-bar').style.backgroundColor = Number(currentRoas) >= targetRoas ? '#10b981' : '#f59e0b';
+            document.getElementById('roas-pct').className = Number(currentRoas) >= targetRoas ? "text-emerald-400 font-bold" : "text-white font-bold";
+        }
+
+        function renderChartsDynamic(platforms) {
+            Chart.defaults.color = '#94a3b8';
+            Chart.defaults.font.family = "'Inter', sans-serif";
+            
+            // Smoothly update Monthly Chart without destroying or jittering
+            if(monthlyChartInstance) {
+                monthlyChartInstance.data.datasets[0].data = [115000, 120000, 125000, 122000, 130000, 135000, 140000, 148000, 95000];
+                monthlyChartInstance.update('none');
+            } else {
+                monthlyChartInstance = new Chart(document.getElementById('monthlyChart').getContext('2d'), {
+                    type: 'bar',
+                    data: {
+                        labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep'],
+                        datasets: [
+                            { label: 'Revenue', data: [115000, 120000, 125000, 122000, 130000, 135000, 140000, 148000, 95000], backgroundColor: '#3b82f6', borderRadius: 4 },
+                            { label: 'Ad Spend', data: [45000, 48000, 50000, 49000, 52000, 54000, 56000, 59000, 38000], backgroundColor: '#60a5fa', borderRadius: 4 },
+                            { label: 'True ROAS', data: [2.5, 2.5, 2.5, 2.49, 2.5, 2.5, 2.5, 2.5, 2.5], type: 'line', borderColor: '#eab308', borderWidth: 2, tension: 0.4, yAxisID: 'y1' }
+                        ]
+                    },
+                    options: { 
+                        responsive: true, maintainAspectRatio: false, animation: false,
+                        plugins: { legend: { position: 'top', labels: { usePointStyle: true, boxWidth: 8 } } }, 
+                        scales: { 
+                            x: { grid: { color: '#334155', drawBorder: false } }, 
+                            y: { grid: { color: '#334155', drawBorder: false } }, 
+                            y1: { position: 'right', grid: { display: false }, min: 0, max: 5 } 
+                        },
+                        interaction: { mode: 'index', intersect: false }
+                    }
+                });
+            }
+
+            let activePlatforms = platforms.filter(p => p.spend > 0);
+            if (activePlatforms.length === 0) activePlatforms = [{ name: 'No Spend', spend: 1, color: '#334155' }];
+
+            // Smoothly update Pie Chart without destroying or jittering
+            if(spendPieChartInstance) {
+                spendPieChartInstance.data.labels = activePlatforms.map(p => p.name);
+                spendPieChartInstance.data.datasets[0].data = activePlatforms.map(p => p.spend);
+                spendPieChartInstance.data.datasets[0].backgroundColor = activePlatforms.map(p => p.color);
+                spendPieChartInstance.update('none');
+            } else {
+                spendPieChartInstance = new Chart(document.getElementById('spendPieChart').getContext('2d'), {
+                    type: 'doughnut',
+                    data: { 
+                        labels: activePlatforms.map(p => p.name), 
+                        datasets: [{ data: activePlatforms.map(p => p.spend), backgroundColor: activePlatforms.map(p => p.color), borderWidth: 0 }] 
+                    },
+                    options: { 
+                        responsive: true, maintainAspectRatio: false, animation: false,
+                        plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, padding: 20 } } }, 
+                        cutout: '75%',
+                        layout: { padding: 10 }
+                    }
+                });
+            }
+        }
+    </script>
+</body>
+</html>
